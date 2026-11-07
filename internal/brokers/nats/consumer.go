@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"time"
 
 	"github.com/TzimmesTeam/control-plane/internal/domain/events"
@@ -104,15 +105,10 @@ func (c *Consumer) subscribe(ctx context.Context, stage models.Stage, subject st
 }
 
 func (c *Consumer) handle(ctx context.Context, stage models.Stage, msg jetstream.Msg) {
-	var err error
-	if stage == models.StageAggregate {
-		err = c.routeAggregateEvent(ctx, msg)
-	} else {
-		err = c.routeBatchEvent(ctx, stage, msg)
-	}
+	err := c.route(ctx, stage, msg)
 
 	switch {
-	case errors.Is(err, errInvalidPayload):
+	case errors.Is(err, errInvalidPayload), errors.Is(err, errPanic):
 		c.settle(msg, "term", msg.Term())
 	case err != nil:
 		c.settle(msg, "nak", msg.NakWithDelay(eventNakDelay))
@@ -121,7 +117,29 @@ func (c *Consumer) handle(ctx context.Context, stage models.Stage, msg jetstream
 	}
 }
 
-var errInvalidPayload = errors.New("invalid event payload")
+var (
+	errInvalidPayload = errors.New("invalid event payload")
+	errPanic          = errors.New("panic in event handler")
+)
+
+func (c *Consumer) route(ctx context.Context, stage models.Stage, msg jetstream.Msg) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			c.log.Error("panic in event handler",
+				slog.String("subject", msg.Subject()),
+				slog.Any("panic", recovered),
+				slog.String("stack", string(debug.Stack())),
+			)
+			err = errPanic
+		}
+	}()
+
+	if stage == models.StageAggregate {
+		return c.routeAggregateEvent(ctx, msg)
+	}
+
+	return c.routeBatchEvent(ctx, stage, msg)
+}
 
 func (c *Consumer) settle(msg jetstream.Msg, action string, err error) {
 	if err != nil {
