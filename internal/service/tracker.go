@@ -174,6 +174,8 @@ func (s *Service) retryOrKillBatch(ctx context.Context, bs *models.BatchStage, r
 }
 
 func (s *Service) closeStageIfDone(ctx context.Context, run *models.Run, stage models.Stage) (followUp, error) {
+	const op = "Service.closeStageIfDone"
+
 	if run.CurrentStage != stage {
 		return followUp{}, nil
 	}
@@ -181,6 +183,9 @@ func (s *Service) closeStageIfDone(ctx context.Context, run *models.Run, stage m
 	stages, err := s.repo.ListStageProgress(ctx, run.RunID, stage)
 	if err != nil {
 		return followUp{}, err
+	}
+	if len(stages) == 0 {
+		return followUp{}, fmt.Errorf("%s: no progress for stage %s", op, stage)
 	}
 	progress := stages[0]
 	if !progress.IsClosed() {
