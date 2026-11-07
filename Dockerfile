@@ -18,7 +18,7 @@ WORKDIR /app
 COPY --from=builder /control-plane /usr/local/bin/control-plane
 COPY config/local.yml /app/config/local.yml
 
-EXPOSE 8080
+EXPOSE 8089
 
 ENTRYPOINT ["control-plane"]
 CMD ["-config", "/app/config/local.yml"]

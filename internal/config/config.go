@@ -19,7 +19,7 @@ type Config struct {
 }
 
 type HTTP struct {
-	Port            int           `yaml:"port" env:"HTTP_PORT" env-default:"8080"`
+	Port            int           `yaml:"port" env:"HTTP_PORT" env-default:"8089"`
 	ReadTimeout     time.Duration `yaml:"read_timeout" env:"HTTP_READ_TIMEOUT" env-default:"10s"`
 	WriteTimeout    time.Duration `yaml:"write_timeout" env:"HTTP_WRITE_TIMEOUT" env-default:"30s"`
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout" env:"HTTP_SHUTDOWN_TIMEOUT" env-default:"15s"`
