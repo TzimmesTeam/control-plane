@@ -193,22 +193,46 @@ func (s *Service) processRun(ctx context.Context, runID string) {
 		return
 	}
 
-	if err := s.prepareRun(ctx, run); err != nil {
-		if ctx.Err() != nil {
-			s.log.Warn("run processing interrupted", slog.String("run_id", runID), slog.Any("error", err))
+	if needsPrepare(run.Status) {
+		if err := s.prepareRun(ctx, run); err != nil {
+			if ctx.Err() != nil {
+				s.log.Warn("run processing interrupted", slog.String("run_id", runID), slog.Any("error", err))
+				return
+			}
+			s.failRun(ctx, runID, err)
 			return
 		}
-		s.failRun(ctx, runID, err)
-		return
+
+		run, err = s.repo.GetRun(ctx, runID)
+		if err != nil {
+			s.log.Error("reload run failed", slog.String("run_id", runID), slog.Any("error", err))
+			return
+		}
 	}
 
-	if err := s.DispatchStage(ctx, runID, models.StagePrep); err != nil {
-		s.log.Error("dispatch failed, scanner will retry",
+	if err := s.advanceRun(ctx, run); err != nil {
+		s.log.Error("advance run failed, scanner will retry",
 			slog.String("run_id", runID),
-			slog.String("stage", string(models.StagePrep)),
+			slog.String("status", string(run.Status)),
+			slog.String("stage", string(run.CurrentStage)),
 			slog.Any("error", err),
 		)
 	}
+}
+
+func (s *Service) advanceRun(ctx context.Context, run *models.Run) error {
+	switch run.Status {
+	case models.RunStatusRunning:
+		return s.DispatchStage(ctx, run.RunID, run.CurrentStage)
+	case models.RunStatusAggregating:
+		return s.StartAggregation(ctx, run.RunID)
+	default:
+		return nil
+	}
+}
+
+func needsPrepare(status models.RunStatus) bool {
+	return status == models.RunStatusCreated || status == models.RunStatusSplitting
 }
 
 func (s *Service) prepareRun(ctx context.Context, run *models.Run) error {
@@ -441,17 +465,12 @@ func (s *Service) Recover(ctx context.Context) error {
 }
 
 func (s *Service) resumeRun(ctx context.Context, run *models.Run) error {
-	switch run.Status {
-	case models.RunStatusCreated, models.RunStatusSplitting:
+	if needsPrepare(run.Status) {
 		s.enqueue(run.RunID)
 		return nil
-	case models.RunStatusRunning:
-		return s.DispatchStage(ctx, run.RunID, run.CurrentStage)
-	case models.RunStatusAggregating:
-		return s.StartAggregation(ctx, run.RunID)
-	default:
-		return nil
 	}
+
+	return s.advanceRun(ctx, run)
 }
 
 func (s *Service) failRun(ctx context.Context, runID string, cause error) {

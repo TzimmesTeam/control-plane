@@ -20,7 +20,7 @@ nats:
   url: "nats://localhost:4222"
   client_id: "control-plane"
   stream_name: "CALC"
-  ack_wait: 30s
+  ack_wait: 2m
   max_ack_pending: 64
   subjects:
     prep_tasks: "data-prep.tasks"

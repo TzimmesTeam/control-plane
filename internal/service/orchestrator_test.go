@@ -138,6 +138,7 @@ func TestProcessRunLandsSplitsAndDispatches(t *testing.T) {
 		}).Return(nil).Once()
 	d.repo.On("StartRunStages", mock.Anything, testRunID, "s3://data-lake/runs/"+testRunID+"/context.json", 2, 1).
 		Return(nil).Once()
+	d.repo.On("GetRun", mock.Anything, testRunID).Return(runningRun(models.StagePrep), nil).Once()
 	d.repo.On("ListPendingBatchIDs", mock.Anything, testRunID, models.StagePrep).Return([]string{}, nil).Once()
 
 	d.svc.processRun(context.Background(), testRunID)

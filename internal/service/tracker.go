@@ -50,7 +50,7 @@ func (s *Service) HandleBatchEvent(ctx context.Context, stage models.Stage, even
 		return fmt.Errorf("%s: %w", op, err)
 	}
 
-	s.runFollowUp(ctx, event.RunID, next)
+	s.runFollowUp(event.RunID, next)
 
 	return nil
 }
@@ -257,23 +257,8 @@ func (s *Service) expectedDealsIn(ctx context.Context, log *slog.Logger, bs *mod
 	return 0, false
 }
 
-func (s *Service) runFollowUp(ctx context.Context, runID string, next followUp) {
-	if next.dispatch != "" {
-		if err := s.DispatchStage(ctx, runID, next.dispatch); err != nil {
-			s.log.Error("dispatch failed, scanner will retry",
-				slog.String("run_id", runID),
-				slog.String("stage", string(next.dispatch)),
-				slog.Any("error", err),
-			)
-		}
-	}
-
-	if next.aggregate {
-		if err := s.StartAggregation(ctx, runID); err != nil {
-			s.log.Error("start aggregation failed, scanner will retry",
-				slog.String("run_id", runID),
-				slog.Any("error", err),
-			)
-		}
+func (s *Service) runFollowUp(runID string, next followUp) {
+	if next.dispatch != "" || next.aggregate {
+		s.enqueue(runID)
 	}
 }

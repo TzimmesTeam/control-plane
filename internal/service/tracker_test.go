@@ -42,6 +42,7 @@ func TestHandleBatchEventSuccess(t *testing.T) {
 	err := d.svc.HandleBatchEvent(context.Background(), models.StagePrep, event)
 	require.NoError(t, err)
 	d.repo.AssertNotCalled(t, "UpdateRunStage", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	require.Empty(t, d.svc.queue)
 }
 
 func TestHandleBatchEventErrorRetries(t *testing.T) {
@@ -155,22 +156,22 @@ func TestBarrierClosesOnLastEvent(t *testing.T) {
 		Return([]models.StageProgress{{Stage: models.StagePrep, Total: 2, Done: 2}}, nil).Once()
 	d.repo.On("UpdateRunStage", mock.Anything, testRunID, models.RunStatusRunning, models.StageCashflow).Return(nil).Once()
 
-	d.repo.On("ListPendingBatchIDs", mock.Anything, testRunID, models.StageCashflow).Return([]string{testBatchID}, nil).Once()
-	d.repo.On("LockRun", mock.Anything, testRunID).Return(runningRun(models.StageCashflow), nil).Once()
-	d.repo.On("GetBatchStage", mock.Anything, testRunID, testBatchID, models.StageCashflow).
-		Return(&models.BatchStage{RunID: testRunID, BatchID: testBatchID, Stage: models.StageCashflow, Status: models.BatchStatusPending}, nil).Once()
-	d.repo.On("MarkBatchDispatched", mock.Anything, testRunID, testBatchID, models.StageCashflow, 1, testLeaseTTL).Return(nil).Once()
-	d.pub.On("PublishTask", mock.Anything, "cashflow.tasks", testRunID+":"+testBatchID+":cashflow:1", events.BatchTask{
-		RunID:         testRunID,
-		BatchID:       testBatchID,
-		Attempt:       1,
-		DealIDsLink:   "s3://data-lake/runs/" + testRunID + "/batches/" + testBatchID + ".ids",
-		OutputPrefix:  "s3://data-lake/cashflow/" + testRunID + "/" + testBatchID + "/",
-		EngineVersion: events.DefaultEngineVersion,
-	}).Return(nil).Once()
-
 	err := d.svc.HandleBatchEvent(context.Background(), models.StagePrep, event)
 	require.NoError(t, err)
+
+	requireQueued(t, d, testRunID)
+	d.pub.AssertNotCalled(t, "PublishTask", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+func requireQueued(t *testing.T, d *testDeps, runID string) {
+	t.Helper()
+
+	select {
+	case queued := <-d.svc.queue:
+		require.Equal(t, runID, queued)
+	default:
+		t.Fatal("run was not queued for processing")
+	}
 }
 
 func TestBarrierNotClosedWhileBatchesRemain(t *testing.T) {
@@ -221,10 +222,58 @@ func TestBarrierAfterPVStartsAggregation(t *testing.T) {
 	d.repo.On("UpdateRunStage", mock.Anything, testRunID, models.RunStatusAggregating, models.StageAggregate).Return(nil).Once()
 	d.repo.On("EnsureAggregation", mock.Anything, testRunID, testPortfolioID).Return(nil).Once()
 
-	d.repo.On("GetRun", mock.Anything, testRunID).Return(runningRun(models.StagePV), nil).Once()
-
 	err := d.svc.HandleBatchEvent(context.Background(), models.StagePV, batchEvent(events.StatusSuccess, 1))
 	require.NoError(t, err)
+
+	requireQueued(t, d, testRunID)
+	d.pub.AssertNotCalled(t, "PublishTask", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestAdvanceRunDispatchesCurrentStage(t *testing.T) {
+	d := newTestService(t)
+
+	d.repo.On("ListPendingBatchIDs", mock.Anything, testRunID, models.StageCashflow).Return([]string{testBatchID}, nil).Once()
+	d.repo.On("LockRun", mock.Anything, testRunID).Return(runningRun(models.StageCashflow), nil).Once()
+	d.repo.On("GetBatchStage", mock.Anything, testRunID, testBatchID, models.StageCashflow).
+		Return(&models.BatchStage{RunID: testRunID, BatchID: testBatchID, Stage: models.StageCashflow, Status: models.BatchStatusPending}, nil).Once()
+	d.repo.On("MarkBatchDispatched", mock.Anything, testRunID, testBatchID, models.StageCashflow, 1, testLeaseTTL).Return(nil).Once()
+	d.pub.On("PublishTask", mock.Anything, "cashflow.tasks", testRunID+":"+testBatchID+":cashflow:1", events.BatchTask{
+		RunID:         testRunID,
+		BatchID:       testBatchID,
+		Attempt:       1,
+		DealIDsLink:   "s3://data-lake/runs/" + testRunID + "/batches/" + testBatchID + ".ids",
+		OutputPrefix:  "s3://data-lake/cashflow/" + testRunID + "/" + testBatchID + "/",
+		EngineVersion: events.DefaultEngineVersion,
+	}).Return(nil).Once()
+
+	require.NoError(t, d.svc.advanceRun(context.Background(), runningRun(models.StageCashflow)))
+}
+
+func TestAdvanceRunStartsAggregation(t *testing.T) {
+	d := newTestService(t)
+
+	d.repo.On("GetRun", mock.Anything, testRunID).Return(aggregatingRun(), nil).Once()
+	d.repo.On("GetAggregation", mock.Anything, testRunID).Return(dispatchedAggregation(1), nil).Once()
+
+	require.NoError(t, d.svc.advanceRun(context.Background(), aggregatingRun()))
+}
+
+func TestAdvanceRunIgnoresTerminalRun(t *testing.T) {
+	d := newTestService(t)
+
+	run := runningRun(models.StagePV)
+	run.Status = models.RunStatusSucceeded
+
+	require.NoError(t, d.svc.advanceRun(context.Background(), run))
+}
+
+func TestProcessRunAdvancesRunningRun(t *testing.T) {
+	d := newTestService(t)
+
+	d.repo.On("GetRun", mock.Anything, testRunID).Return(runningRun(models.StagePV), nil).Once()
+	d.repo.On("ListPendingBatchIDs", mock.Anything, testRunID, models.StagePV).Return([]string{}, nil).Once()
+
+	d.svc.processRun(context.Background(), testRunID)
 }
 
 func TestDispatchStagePublishErrorKeepsBatchPending(t *testing.T) {

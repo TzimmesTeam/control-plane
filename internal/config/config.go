@@ -40,7 +40,7 @@ type NATS struct {
 	URL           string        `yaml:"url" env:"NATS_URL" env-default:"nats://localhost:4222"`
 	ClientID      string        `yaml:"client_id" env:"NATS_CLIENT_ID" env-default:"control-plane"`
 	StreamName    string        `yaml:"stream_name" env:"NATS_STREAM_NAME" env-default:"CALC"`
-	AckWait       time.Duration `yaml:"ack_wait" env:"NATS_ACK_WAIT" env-default:"30s"`
+	AckWait       time.Duration `yaml:"ack_wait" env:"NATS_ACK_WAIT" env-default:"2m"`
 	MaxAckPending int           `yaml:"max_ack_pending" env:"NATS_MAX_ACK_PENDING" env-default:"64"`
 	Subjects      NATSSubjects  `yaml:"subjects"`
 }
