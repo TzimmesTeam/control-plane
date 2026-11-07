@@ -1,0 +1,49 @@
+env: "local"
+
+http:
+  port: 8089
+  read_timeout: 10s
+  write_timeout: 30s
+  shutdown_timeout: 15s
+
+database:
+  host: "localhost"
+  port: "5432"
+  user: "postgres"
+  password: "postgres"
+  name: "control_plane"
+  ssl_mode: "disable"
+  max_open_conns: 20
+  max_idle_conns: 10
+
+nats:
+  url: "nats://localhost:4222"
+  client_id: "control-plane"
+  stream_name: "CALC"
+  ack_wait: 30s
+  max_ack_pending: 64
+  subjects:
+    prep_tasks: "data-prep.tasks"
+    prep_events: "data-prep.events"
+    cashflow_tasks: "cashflow.tasks"
+    cashflow_events: "cashflow.events"
+    pv_tasks: "pv.tasks"
+    pv_events: "pv.events"
+    aggregator_tasks: "aggregator.tasks"
+    aggregator_events: "aggregator.events"
+
+s3:
+  endpoint: "localhost:9000"
+  region: "us-east-1"
+  access_key: "minioadmin"
+  secret_key: "minioadmin"
+  use_ssl: false
+  lake_bucket: "data-lake"
+  report_bucket: "report-store"
+
+run:
+  batch_target_weight: 50000
+  max_batches_per_run: 10000
+  max_attempts: 3
+  lease_ttl: 10m
+  scan_interval: 10s

@@ -1,0 +1,5 @@
+curve_id;tenor_days;rate_pct
+RUB_OIS;30;8.50
+RUB_OIS;365;8.90
+USD_SOFR;30;5.30
+USD_SOFR;365;5.10

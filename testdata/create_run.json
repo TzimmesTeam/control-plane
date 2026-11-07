@@ -1,0 +1,6 @@
+{
+  "portfolio_id": "99999999-9999-4999-8999-999999999999",
+  "report_dttm": "2022-08-31",
+  "source_uri": "s3://data-lake/input/deals.csv",
+  "curves_uri": "s3://data-lake/input/curves/"
+}

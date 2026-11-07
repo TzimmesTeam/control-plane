@@ -1,0 +1,8 @@
+{
+  "run_id": "RUN_ID",
+  "batch_id": "BATCH_ID",
+  "attempt": 1,
+  "status": "success",
+  "output_links": [{ "uri": "s3://data-lake/prepared/RUN_ID/BATCH_ID/part-0.parquet" }],
+  "stats": { "deals_in": 28, "deals_ok": 28, "deals_rejected": 0 }
+}

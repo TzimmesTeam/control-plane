@@ -1,0 +1,9 @@
+{
+  "run_id": "RUN_ID",
+  "portfolio_id": "99999999-9999-4999-8999-999999999999",
+  "attempt": 1,
+  "status": "success",
+  "report_link": "s3://report-store/RUN_ID/report.parquet",
+  "missing_batches": [],
+  "stats": { "deals_total": 55, "batches": 2 }
+}

@@ -1,0 +1,8 @@
+{
+  "run_id": "RUN_ID",
+  "batch_id": "BATCH_ID",
+  "attempt": 1,
+  "status": "error",
+  "output_links": [],
+  "stats": {}
+}
