@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.25.7-alpine AS builder
 
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
@@ -18,7 +18,7 @@ WORKDIR /app
 COPY --from=builder /control-plane /usr/local/bin/control-plane
 COPY config/local.yml /app/config/local.yml
 
-EXPOSE 8089
+EXPOSE 8080
 
 ENTRYPOINT ["control-plane"]
 CMD ["-config", "/app/config/local.yml"]

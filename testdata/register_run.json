@@ -1,0 +1,6 @@
+{
+  "snapshot_id": "ab12",
+  "portfolio_id": "portfolio-1",
+  "report_dttm": "2026-11-16",
+  "curves_uri": "s3://curated/curve_snapshots/base.parquet"
+}

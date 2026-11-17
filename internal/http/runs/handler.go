@@ -4,130 +4,100 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/TzimmesTeam/control-plane/internal/domain/models"
 	"github.com/TzimmesTeam/control-plane/internal/service"
-	"github.com/gin-gonic/gin"
-)
-
-const (
-	maxRequestBody = 1 << 20
-
-	pathRunID   = "run_id"
-	queryStage  = "stage"
-	queryStatus = "status"
-
-	codeInvalidRequest = "invalid_request"
-	codeRunNotFound    = "run_not_found"
-	codeRunFinished    = "run_finished"
-	codeInternal       = "internal_error"
 )
 
 type RunService interface {
-	CreateRun(ctx context.Context, in service.CreateRunInput) (*models.Run, error)
-	GetRun(ctx context.Context, runID string) (*models.RunDetails, error)
-	ListRunBatches(ctx context.Context, runID string, filter models.BatchStageFilter) ([]*models.BatchDetails, error)
-	CancelRun(ctx context.Context, runID string) (*models.RunDetails, error)
+	CreateRun(context.Context, service.CreateRunInput) (*models.Run, error)
+	Prepared(context.Context, service.CreateRunInput) (*models.Run, error)
+	GetRun(context.Context, string) (*models.Run, error)
+	ListRunBatches(context.Context, string) ([]models.Batch, error)
+	CancelRun(context.Context, string) (*models.Run, error)
 }
-
 type Handler struct {
 	log *slog.Logger
 	svc RunService
 }
 
-func NewHandler(log *slog.Logger, svc RunService) *Handler {
-	if log == nil {
-		log = slog.Default()
-	}
-
-	return &Handler{log: log, svc: svc}
+func NewHandler(log *slog.Logger, svc RunService) *Handler { return &Handler{log: log, svc: svc} }
+func (h *Handler) Register(router gin.IRouter) {
+	router.POST("/v1/runs", h.create)
+	router.POST("/snapshots/prepared", h.prepared)
+	router.GET("/v1/runs/:run_id", h.get)
+	router.GET("/v1/runs/:run_id/batches", h.batches)
+	router.POST("/v1/runs/:run_id/cancel", h.cancel)
 }
-
-func (h *Handler) Register(r gin.IRouter) {
-	v1 := r.Group("/v1/runs")
-	v1.POST("", h.CreateRun)
-	v1.GET("/:"+pathRunID, h.GetRun)
-	v1.GET("/:"+pathRunID+"/batches", h.ListBatches)
-	v1.POST("/:"+pathRunID+"/cancel", h.CancelRun)
-}
-
-func (h *Handler) CreateRun(c *gin.Context) {
-	var req CreateRunRequest
-
-	dec := json.NewDecoder(http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBody))
+func decode(w http.ResponseWriter, r *http.Request, value any) error {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil {
-		writeError(c, http.StatusBadRequest, codeInvalidRequest, "invalid json body: "+err.Error())
+	if err := dec.Decode(value); err != nil {
+		return err
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		return models.ErrInvalid
+	}
+	return nil
+}
+func (h *Handler) create(c *gin.Context) {
+	var in service.CreateRunInput
+	if err := decode(c.Writer, c.Request, &in); err != nil {
+		h.reply(c, nil, models.ErrInvalid)
 		return
 	}
-
-	run, err := h.svc.CreateRun(c.Request.Context(), service.CreateRunInput{
-		PortfolioID: req.PortfolioID,
-		ReportDttm:  req.ReportDttm,
-		SourceURI:   req.SourceURI,
-		CurvesURI:   req.CurvesURI,
-	})
+	run, err := h.svc.CreateRun(c.Request.Context(), in)
+	h.reply(c, run, err)
+}
+func (h *Handler) prepared(c *gin.Context) {
+	var in service.CreateRunInput
+	if err := decode(c.Writer, c.Request, &in); err != nil {
+		h.reply(c, nil, models.ErrInvalid)
+		return
+	}
+	run, err := h.svc.Prepared(c.Request.Context(), in)
+	h.reply(c, run, err)
+}
+func (h *Handler) get(c *gin.Context) {
+	run, err := h.svc.GetRun(c.Request.Context(), c.Param("run_id"))
+	h.reply(c, run, err)
+}
+func (h *Handler) batches(c *gin.Context) {
+	batches, err := h.svc.ListRunBatches(c.Request.Context(), c.Param("run_id"))
+	h.reply(c, batches, err)
+}
+func (h *Handler) cancel(c *gin.Context) {
+	run, err := h.svc.CancelRun(c.Request.Context(), c.Param("run_id"))
+	h.reply(c, run, err)
+}
+func (h *Handler) reply(c *gin.Context, value any, err error) {
+	status := http.StatusOK
 	if err != nil {
-		h.handleServiceError(c, err)
-		return
+		message := err.Error()
+		switch {
+		case errors.Is(err, models.ErrInvalid):
+			status = http.StatusBadRequest
+		case errors.Is(err, models.ErrNotFound):
+			status = http.StatusNotFound
+		case errors.Is(err, models.ErrConflict):
+			status = http.StatusConflict
+		default:
+			status = http.StatusInternalServerError
+			message = "internal error"
+			h.log.Error("HTTP request failed", "error", err)
+		}
+		value = map[string]string{"error": message}
 	}
-
-	c.JSON(http.StatusAccepted, CreateRunResponse{RunID: run.RunID, Status: string(run.Status)})
-}
-
-func (h *Handler) GetRun(c *gin.Context) {
-	details, err := h.svc.GetRun(c.Request.Context(), c.Param(pathRunID))
-	if err != nil {
-		h.handleServiceError(c, err)
-		return
+	if run, ok := value.(*models.Run); ok && run != nil {
+		copy := *run
+		copy.PlanningToken = ""
+		value = &copy
 	}
-
-	c.JSON(http.StatusOK, toRunResponse(details))
-}
-
-func (h *Handler) ListBatches(c *gin.Context) {
-	filter := models.BatchStageFilter{
-		Stage:  models.Stage(c.Query(queryStage)),
-		Status: models.BatchStatus(c.Query(queryStatus)),
-	}
-
-	batches, err := h.svc.ListRunBatches(c.Request.Context(), c.Param(pathRunID), filter)
-	if err != nil {
-		h.handleServiceError(c, err)
-		return
-	}
-
-	c.JSON(http.StatusOK, toBatchesResponse(batches))
-}
-
-func (h *Handler) CancelRun(c *gin.Context) {
-	details, err := h.svc.CancelRun(c.Request.Context(), c.Param(pathRunID))
-	if err != nil {
-		h.handleServiceError(c, err)
-		return
-	}
-
-	c.JSON(http.StatusOK, toRunResponse(details))
-}
-
-func (h *Handler) handleServiceError(c *gin.Context, err error) {
-	var validationErr *service.ValidationError
-
-	switch {
-	case errors.As(err, &validationErr):
-		writeError(c, http.StatusBadRequest, codeInvalidRequest, validationErr.Error())
-	case errors.Is(err, models.ErrRunNotFound):
-		writeError(c, http.StatusNotFound, codeRunNotFound, "run not found")
-	case errors.Is(err, models.ErrRunFinished):
-		writeError(c, http.StatusConflict, codeRunFinished, "run already finished")
-	default:
-		h.log.Error("request failed", slog.String("path", c.FullPath()), slog.Any("error", err))
-		writeError(c, http.StatusInternalServerError, codeInternal, "internal error")
-	}
-}
-
-func writeError(c *gin.Context, status int, code, message string) {
-	c.JSON(status, ErrorResponse{Error: ErrorBody{Code: code, Message: message}})
+	c.JSON(status, value)
 }

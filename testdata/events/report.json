@@ -1,0 +1,5 @@
+{
+  "task_id": "REPLACE_WITH_AGGREGATION_TASK_ID",
+  "status": "success",
+  "report_link": "s3://artifacts/runs/REPLACE_WITH_RUN_ID/report.pdf"
+}

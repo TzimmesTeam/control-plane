@@ -1,0 +1,5 @@
+{
+  "task_id": "REPLACE_WITH_TASK_ID_FROM_QUEUE",
+  "status": "success",
+  "output_links": [{"uri":"s3://curated/REPLACE_WITH_REAL_OUTPUT.parquet"}]
+}

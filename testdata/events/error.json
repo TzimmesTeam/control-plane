@@ -1,0 +1,5 @@
+{
+  "task_id": "REPLACE_WITH_TASK_ID_FROM_QUEUE",
+  "status": "error",
+  "error": "calculation failed"
+}
